@@ -1,0 +1,12 @@
+# Release to roll out. Override on the command line: -e app_version=v2
+app_version: v1
+app_image: zdd-app
+app_broken: false
+app_startup_delay: 3
+app_instances: [app1, app2, app3]
+network_name: zdd
+lb_port: 8080
+# Gap between taking an instance out of nginx and stopping it, so requests already sent to it can finish.
+drain_seconds: 2
+health_retries: 30
+state_dir: "{{ playbook_dir }}/../.state"

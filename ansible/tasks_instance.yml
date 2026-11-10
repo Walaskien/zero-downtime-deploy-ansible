@@ -1,0 +1,47 @@
+# Rolls one instance to `app_version`. On a failed health check the previous image is restored.
+- name: "{{ item }}: inspect current container"
+  community.docker.docker_container_info:
+    name: "zdd-{{ item }}"
+  register: current
+
+- name: "{{ item }}: note running image"
+  ansible.builtin.set_fact:
+    previous_image: "{{ current.container.Config.Image if current.exists else '' }}"
+    target_image: "{{ app_image }}:{{ app_version }}"
+
+- name: "{{ item }}: roll out"
+  when: previous_image != target_image
+  block:
+    - name: "{{ item }}: take out of the load balancer"
+      ansible.builtin.include_tasks: tasks_nginx_conf.yml
+      vars:
+        lb_exclude: ["{{ item }}"]
+      when: current.exists
+
+    - name: "{{ item }}: let in-flight requests finish"
+      ansible.builtin.pause:
+        seconds: "{{ drain_seconds }}"
+      when: current.exists
+
+    - name: "{{ item }}: run {{ target_image }}"
+      ansible.builtin.include_tasks: tasks_run_instance.yml
+      vars:
+        run_image: "{{ target_image }}"
+        run_broken: "{{ app_broken | bool }}"
+  rescue:
+    - name: "{{ item }}: restore {{ previous_image or 'nothing (first deploy)' }}"
+      ansible.builtin.include_tasks: tasks_run_instance.yml
+      vars:
+        run_image: "{{ previous_image }}"
+        run_broken: false
+      when: previous_image != ''
+
+    - name: "{{ item }}: put back into the load balancer"
+      ansible.builtin.include_tasks: tasks_nginx_conf.yml
+
+    - name: "{{ item }}: stop the rollout"
+      ansible.builtin.fail:
+        msg: "{{ item }} did not become healthy with {{ target_image }}; previous image restored."
+
+- name: "{{ item }}: put into the load balancer"
+  ansible.builtin.include_tasks: tasks_nginx_conf.yml
