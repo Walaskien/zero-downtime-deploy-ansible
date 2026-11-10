@@ -1,3 +1,4 @@
+---
 # Moves one instance to `image`. It leaves the pool first, so nginx stops
 # sending it requests before its container goes away, and it only comes back
 # once /health answers.
@@ -11,8 +12,14 @@
   vars:
     host_port: "{{ health_base_port + app_instances.index(instance) }}"
   block:
+    # A fact, not "instance in lb_pool" in the when: below. A block's condition is
+    # checked again for every task inside, and lb_pool changes in its first one.
+    - name: Check pool membership {{ instance }}
+      ansible.builtin.set_fact:
+        was_pooled: "{{ instance in lb_pool }}"
+
     - name: Take out of the pool {{ instance }}
-      when: instance in lb_pool
+      when: was_pooled
       block:
         - name: Drop from lb_pool {{ instance }}
           ansible.builtin.set_fact:
@@ -25,12 +32,13 @@
           ansible.builtin.pause:
             seconds: "{{ drain_seconds }}"
 
-    - name: Start container {{ instance }} on {{ image }}
+    - name: Start container {{ instance }}
       community.docker.docker_container:
         name: "zdd-{{ instance }}"
         image: "{{ image }}"
         state: started
         recreate: true
+        image_name_mismatch: recreate
         restart_policy: unless-stopped
         networks:
           - name: "{{ network_name }}"

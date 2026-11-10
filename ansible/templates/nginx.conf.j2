@@ -1,6 +1,7 @@
 # Rendered by Ansible
 # Only running instances are listed: nginx resolves the names when it loads
 # the config, and a name without a container fails the reload.
+#
 # max_fails=0, otherwise one refused connection takes a server out for 10s
 upstream app {
 {% for name in lb_pool %}
@@ -8,8 +9,12 @@ upstream app {
 {% endfor %}
 }
 
+# A comma in the upstream address means nginx had to retry on another instance
+log_format upstreams '$status $upstream_addr';
+
 server {
     listen 80;
+    access_log /dev/stdout upstreams;
 
     location / {
         proxy_pass http://app;
