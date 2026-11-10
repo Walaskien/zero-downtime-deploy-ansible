@@ -1,40 +1,46 @@
-"""Tiny HTTP service used as the deployment target.
+"""Small HTTP service used as the deploy target.
 
-STARTUP_DELAY keeps /health failing for a while after start, so the deploy's
-health wait has something to wait for. BROKEN=1 makes a release that never
-becomes healthy, to exercise the rollback.
+STARTUP_DELAY: seconds to wait before listening, like a service that warms up.
+BROKEN=1: /health answers 503, to simulate a release that never gets healthy.
 """
 import json
 import os
+import signal
 import socket
+import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-START = time.time()
 VERSION = os.environ.get("APP_VERSION", "dev")
-DELAY = float(os.environ.get("STARTUP_DELAY", "0"))
+STARTUP_DELAY = float(os.environ.get("STARTUP_DELAY", "0"))
 BROKEN = os.environ.get("BROKEN") == "1"
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, code, body):
-        data = body.encode()
+    def reply(self, code, payload):
+        body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(data)
+        self.wfile.write(body)
 
     def do_GET(self):
         if self.path == "/health":
-            healthy = not BROKEN and time.time() - START >= DELAY
-            self._send(200 if healthy else 503, json.dumps({"healthy": healthy}))
+            if BROKEN:
+                self.reply(503, {"status": "broken"})
+            else:
+                self.reply(200, {"status": "ok"})
         else:
-            self._send(200, json.dumps({"version": VERSION, "host": socket.gethostname()}))
+            self.reply(200, {"version": VERSION, "host": socket.gethostname()})
 
-    def log_message(self, fmt, *args):
-        pass
+    def log_message(self, *args):
+        pass  # one line per request would bury the deploy output
 
 
 if __name__ == "__main__":
+    # As PID 1 the process ignores SIGTERM unless it has a handler, and
+    # docker stop would sit through its 10 second timeout before SIGKILL.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    time.sleep(STARTUP_DELAY)
     ThreadingHTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
