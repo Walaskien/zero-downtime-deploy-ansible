@@ -18,18 +18,46 @@
       loop_control:
         label: "{{ item }}"
 
-    - name: Remember who is in the pool
-      ansible.builtin.set_fact:
-        lb_pool: "{{ before.results | selectattr('exists') | selectattr('container.State.Running') | map(attribute='item') | list }}"
-
-    - name: Roll the instances one at a time
-      ansible.builtin.include_tasks: tasks/roll_instance.yml
-      loop: "{{ app_instances }}"
-      loop_control:
-        loop_var: instance
+    - name: Remember what is running now
       vars:
-        image: "{{ app_image }}:{{ app_version }}"
-        fault: true
+        existing: "{{ before.results | selectattr('exists') | list }}"
+      ansible.builtin.set_fact:
+        lb_pool: "{{ existing | selectattr('container.State.Running') | map(attribute='item') | list }}"
+        previous_images: "{{ dict(existing | map(attribute='item') | zip(existing | map(attribute='container.Config.Image'))) }}"
+
+    - name: Roll out the release
+      block:
+        - name: Roll the instances one at a time
+          ansible.builtin.include_tasks: tasks/roll_instance.yml
+          loop: "{{ app_instances }}"
+          loop_control:
+            loop_var: instance
+          vars:
+            image: "{{ app_image }}:{{ app_version }}"
+            fault: true
+
+      rescue:
+        # Instances before the failed one may already run the new release, so go
+        # back through all of them. Last first: the failed one is out of the pool
+        # and the others keep serving while it is restored.
+        - name: Put the previous release back
+          ansible.builtin.include_tasks: tasks/roll_instance.yml
+          loop: "{{ app_instances | reverse | select('in', previous_images) | list }}"
+          loop_control:
+            loop_var: instance
+          vars:
+            image: "{{ previous_images[instance] }}"
+            fault: false
+
+        - name: Remove instances that had no previous release
+          community.docker.docker_container:
+            name: "zdd-{{ item }}"
+            state: absent
+          loop: "{{ app_instances | reject('in', previous_images) | list }}"
+
+        - name: Stop the play
+          ansible.builtin.fail:
+            msg: "{{ app_version }} was rolled back, failed task: {{ ansible_failed_task.name }}"
 
     - name: Make sure nginx lists the final pool
       ansible.builtin.include_tasks: tasks/set_pool.yml
