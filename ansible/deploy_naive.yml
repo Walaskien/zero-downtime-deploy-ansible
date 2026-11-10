@@ -1,0 +1,46 @@
+# What most people write first: remove everything, start the new release, reload nginx.
+# Only here to compare with deploy.yml while requests are flowing.
+- name: Naive deploy
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Prepare image, network and config directory
+      ansible.builtin.include_tasks: tasks/prepare.yml
+
+    - name: Remove the old containers
+      community.docker.docker_container:
+        name: "zdd-{{ item }}"
+        state: absent
+      loop: "{{ app_instances }}"
+
+    - name: Start the new containers
+      community.docker.docker_container:
+        name: "zdd-{{ item }}"
+        image: "{{ app_image }}:{{ app_version }}"
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: "{{ network_name }}"
+        env:
+          STARTUP_DELAY: "{{ startup_delay | string }}"
+      loop: "{{ app_instances }}"
+
+    - name: Write the nginx config
+      ansible.builtin.include_tasks: tasks/set_pool.yml
+      vars:
+        lb_pool: "{{ app_instances }}"
+
+    - name: Look up nginx
+      community.docker.docker_container_info:
+        name: "{{ nginx_container }}"
+      register: nginx_info
+
+    # The containers got new addresses and nginx still has the old ones
+    - name: Reload nginx
+      community.docker.docker_container_exec:
+        container: "{{ nginx_container }}"
+        command: nginx -s reload
+      when: nginx_info.exists and nginx_info.container.State.Running
+
+    - name: Run nginx
+      ansible.builtin.include_tasks: tasks/run_nginx.yml
