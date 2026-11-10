@@ -1,3 +1,4 @@
+---
 - name: Rolling deploy
   hosts: localhost
   gather_facts: false

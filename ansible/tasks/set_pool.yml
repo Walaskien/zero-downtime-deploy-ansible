@@ -1,3 +1,4 @@
+---
 # Writes the nginx upstream from the lb_pool fact and reloads nginx if it changed.
 - name: Render nginx config
   ansible.builtin.template:

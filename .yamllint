@@ -1,0 +1,13 @@
+---
+extends: default
+
+ignore: |
+  .venv/
+  .state/
+
+rules:
+  line-length:
+    max: 140
+  truthy:
+    # "on:" in the workflow file
+    check-keys: false

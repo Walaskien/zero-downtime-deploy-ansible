@@ -1,0 +1,50 @@
+---
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install tools
+        run: |
+          pip install -r requirements.txt
+          ansible-galaxy collection install -r requirements.yml
+
+      - name: Lint
+        run: make lint
+
+      - name: Syntax check
+        run: make syntax
+
+      - name: Deploy scenario
+        run: make demo
+
+      - name: Containers and logs after a failure
+        if: failure()
+        run: |
+          docker ps -a
+          docker logs zdd-lb || true
+          tail -n 40 .state/logs/*.txt || true
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-logs
+          path: .state/logs/
+          if-no-files-found: ignore

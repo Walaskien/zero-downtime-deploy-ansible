@@ -1,3 +1,4 @@
+---
 # The config directory is mounted, not the file. Ansible replaces the file
 # with a new inode on every change and a single-file bind mount keeps showing the old one.
 - name: Run nginx

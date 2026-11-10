@@ -1,3 +1,4 @@
+---
 # What most people write first: remove everything, start the new release, reload nginx.
 # Only here to compare with deploy.yml while requests are flowing.
 - name: Naive deploy
