@@ -1,47 +1,57 @@
-# Rolls one instance to `app_version`. On a failed health check the previous image is restored.
-- name: "{{ item }}: inspect current container"
+# Moves one instance to `image`. It leaves the pool first, so nginx stops
+# sending it requests before its container goes away, and it only comes back
+# once /health answers.
+- name: Look up container {{ instance }}
   community.docker.docker_container_info:
-    name: "zdd-{{ item }}"
+    name: "zdd-{{ instance }}"
   register: current
 
-- name: "{{ item }}: note running image"
-  ansible.builtin.set_fact:
-    previous_image: "{{ current.container.Config.Image if current.exists else '' }}"
-    target_image: "{{ app_image }}:{{ app_version }}"
-
-- name: "{{ item }}: roll out"
-  when: previous_image != target_image
+- name: Replace container {{ instance }}
+  when: not (current.exists and current.container.State.Running and current.container.Config.Image == image)
+  vars:
+    host_port: "{{ health_base_port + app_instances.index(instance) }}"
   block:
-    - name: "{{ item }}: take out of the load balancer"
-      ansible.builtin.include_tasks: tasks_nginx_conf.yml
-      vars:
-        lb_exclude: ["{{ item }}"]
-      when: current.exists
+    - name: Take out of the pool {{ instance }}
+      when: instance in lb_pool
+      block:
+        - name: Drop from lb_pool {{ instance }}
+          ansible.builtin.set_fact:
+            lb_pool: "{{ lb_pool | difference([instance]) }}"
 
-    - name: "{{ item }}: let in-flight requests finish"
-      ansible.builtin.pause:
-        seconds: "{{ drain_seconds }}"
-      when: current.exists
+        - name: Reload nginx without it {{ instance }}
+          ansible.builtin.include_tasks: set_pool.yml
 
-    - name: "{{ item }}: run {{ target_image }}"
-      ansible.builtin.include_tasks: tasks_run_instance.yml
-      vars:
-        run_image: "{{ target_image }}"
-        run_broken: "{{ app_broken | bool }}"
-  rescue:
-    - name: "{{ item }}: restore {{ previous_image or 'nothing (first deploy)' }}"
-      ansible.builtin.include_tasks: tasks_run_instance.yml
-      vars:
-        run_image: "{{ previous_image }}"
-        run_broken: false
-      when: previous_image != ''
+        - name: Let in-flight requests finish {{ instance }}
+          ansible.builtin.pause:
+            seconds: "{{ drain_seconds }}"
 
-    - name: "{{ item }}: put back into the load balancer"
-      ansible.builtin.include_tasks: tasks_nginx_conf.yml
+    - name: Start container {{ instance }} on {{ image }}
+      community.docker.docker_container:
+        name: "zdd-{{ instance }}"
+        image: "{{ image }}"
+        state: started
+        recreate: true
+        restart_policy: unless-stopped
+        networks:
+          - name: "{{ network_name }}"
+        published_ports:
+          - "127.0.0.1:{{ host_port }}:8000"
+        env:
+          STARTUP_DELAY: "{{ startup_delay | string }}"
+          BROKEN: "{{ '1' if (fault and instance in broken_on) else '0' }}"
 
-    - name: "{{ item }}: stop the rollout"
-      ansible.builtin.fail:
-        msg: "{{ item }} did not become healthy with {{ target_image }}; previous image restored."
+    - name: Wait until healthy {{ instance }}
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ host_port }}/health"
+        status_code: 200
+      register: health
+      retries: "{{ health_retries }}"
+      delay: "{{ health_delay }}"
+      until: health.status == 200
 
-- name: "{{ item }}: put into the load balancer"
-  ansible.builtin.include_tasks: tasks_nginx_conf.yml
+    - name: Add to lb_pool {{ instance }}
+      ansible.builtin.set_fact:
+        lb_pool: "{{ lb_pool + [instance] }}"
+
+    - name: Reload nginx with it {{ instance }}
+      ansible.builtin.include_tasks: set_pool.yml

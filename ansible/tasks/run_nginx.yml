@@ -1,0 +1,14 @@
+# The config directory is mounted, not the file. Ansible replaces the file
+# with a new inode on every change and a single-file bind mount keeps showing the old one.
+- name: Run nginx
+  community.docker.docker_container:
+    name: "{{ nginx_container }}"
+    image: "{{ nginx_image }}"
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ network_name }}"
+    published_ports:
+      - "127.0.0.1:{{ lb_port }}:80"
+    volumes:
+      - "{{ state_dir | realpath }}/nginx:/etc/nginx/conf.d:ro"

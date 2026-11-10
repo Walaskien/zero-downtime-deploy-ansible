@@ -2,3 +2,6 @@ all:
   hosts:
     localhost:
       ansible_connection: local
+      # The docker modules need the docker SDK, which lives in the venv
+      # and not in the system python that discovery would pick
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"

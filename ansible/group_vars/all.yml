@@ -1,12 +1,28 @@
-# Release to roll out. Override on the command line: -e app_version=v2
+# Release to roll out, override with -e app_version=v2
 app_version: v1
 app_image: zdd-app
-app_broken: false
-app_startup_delay: 3
 app_instances: [app1, app2, app3]
+
+# Instances that start the new release with /health failing, for the rollback demo.
+# Usage: -e '{"broken_on": ["app2"]}'
+broken_on: []
+
+# Seconds the demo app needs before it listens
+startup_delay: 3
+
 network_name: zdd
-lb_port: 8080
-# Gap between taking an instance out of nginx and stopping it, so requests already sent to it can finish.
+nginx_image: nginx:1.27-alpine
+nginx_container: zdd-lb
+
+# Host ports are deliberately far from the usual 80/8080
+lb_port: 18080
+health_base_port: 18081
+
+# Pause between removing an instance from nginx and stopping it,
+# so requests that were already proxied to it can finish
 drain_seconds: 2
-health_retries: 30
+
+health_retries: 20
+health_delay: 1
+
 state_dir: "{{ playbook_dir }}/../.state"

@@ -1,13 +1,16 @@
-# Managed by Ansible. Draining instances are left out of the upstream on purpose:
-# nginx resolves upstream names when it loads the config, and a stopped container has no name to resolve.
+# Rendered by Ansible
+# Only running instances are listed: nginx resolves the names when it loads
+# the config, and a name without a container fails the reload.
+# max_fails=0, otherwise one refused connection takes a server out for 10s
 upstream app {
-{% for name in lb_members %}
+{% for name in lb_pool %}
     server zdd-{{ name }}:8000 max_fails=0;
 {% endfor %}
 }
 
 server {
     listen 80;
+
     location / {
         proxy_pass http://app;
         proxy_connect_timeout 1s;

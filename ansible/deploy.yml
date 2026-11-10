@@ -1,44 +1,38 @@
-- name: Rolling deploy behind nginx
+- name: Rolling deploy
   hosts: localhost
   gather_facts: false
-  vars_files: [vars.yml]
   tasks:
-    - name: Need at least two instances to roll without downtime
+    - name: Check there is something to fail over to
       ansible.builtin.assert:
         that: app_instances | length >= 2
+        quiet: true
 
-    - name: Build the application image
-      community.docker.docker_image:
-        name: "{{ app_image }}"
-        tag: "{{ app_version }}"
-        source: build
-        build:
-          path: "{{ playbook_dir }}/../app"
-        force_source: false
+    - name: Prepare image, network and config directory
+      ansible.builtin.include_tasks: tasks/prepare.yml
 
-    - name: Create the network
-      community.docker.docker_network:
-        name: "{{ network_name }}"
-
-    - name: Create the state directory
-      ansible.builtin.file:
-        path: "{{ state_dir }}/nginx"
-        state: directory
-        mode: "0755"
-
-    - name: Roll instances one at a time
-      ansible.builtin.include_tasks: tasks_instance.yml
+    - name: Look at the instances that exist now
+      community.docker.docker_container_info:
+        name: "zdd-{{ item }}"
       loop: "{{ app_instances }}"
+      register: before
+      loop_control:
+        label: "{{ item }}"
 
-    - name: Make sure the nginx config lists every instance
-      ansible.builtin.include_tasks: tasks_nginx_conf.yml
+    - name: Remember who is in the pool
+      ansible.builtin.set_fact:
+        lb_pool: "{{ before.results | selectattr('exists') | selectattr('container.State.Running') | map(attribute='item') | list }}"
+
+    - name: Roll the instances one at a time
+      ansible.builtin.include_tasks: tasks/roll_instance.yml
+      loop: "{{ app_instances }}"
+      loop_control:
+        loop_var: instance
+      vars:
+        image: "{{ app_image }}:{{ app_version }}"
+        fault: true
+
+    - name: Make sure nginx lists the final pool
+      ansible.builtin.include_tasks: tasks/set_pool.yml
 
     - name: Run nginx
-      community.docker.docker_container:
-        name: zdd-lb
-        image: nginx:1.27-alpine
-        state: started
-        restart_policy: unless-stopped
-        networks: [{name: "{{ network_name }}"}]
-        published_ports: ["{{ lb_port }}:80"]
-        volumes: ["{{ state_dir | realpath }}/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro"]
+      ansible.builtin.include_tasks: tasks/run_nginx.yml

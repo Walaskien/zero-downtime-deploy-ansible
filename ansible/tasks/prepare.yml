@@ -1,0 +1,19 @@
+- name: Build the application image
+  community.docker.docker_image:
+    name: "{{ app_image }}"
+    tag: "{{ app_version }}"
+    source: build
+    build:
+      path: "{{ playbook_dir }}/../app"
+      args:
+        APP_VERSION: "{{ app_version }}"
+
+- name: Create the docker network
+  community.docker.docker_network:
+    name: "{{ network_name }}"
+
+- name: Create the directory for the nginx config
+  ansible.builtin.file:
+    path: "{{ state_dir }}/nginx"
+    state: directory
+    mode: "0755"

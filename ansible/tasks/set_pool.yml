@@ -1,20 +1,25 @@
-# Renders the nginx config for every instance except those in `lb_exclude`, then reloads nginx if the file changed.
-- name: Render nginx upstream
+# Writes the nginx upstream from the lb_pool fact and reloads nginx if it changed.
+- name: Render nginx config
   ansible.builtin.template:
-    src: default.conf.j2
-    dest: "{{ state_dir }}/nginx/default.conf"
+    src: nginx.conf.j2
+    dest: "{{ state_dir }}/nginx/app.conf"
     mode: "0644"
-  vars:
-    lb_members: "{{ app_instances | difference(lb_exclude | default([])) }}"
   register: nginx_conf
 
-- name: Check that nginx is running
+- name: Look up nginx
   community.docker.docker_container_info:
-    name: zdd-lb
-  register: lb_info
+    name: "{{ nginx_container }}"
+  register: nginx_info
 
-- name: Reload nginx (graceful: old workers finish their requests)
+# nginx -s reload exits 0 even when the new config is rejected, so check it first
+- name: Test nginx config
   community.docker.docker_container_exec:
-    container: zdd-lb
+    container: "{{ nginx_container }}"
+    command: nginx -t
+  when: nginx_conf.changed and nginx_info.exists and nginx_info.container.State.Running
+
+- name: Reload nginx
+  community.docker.docker_container_exec:
+    container: "{{ nginx_container }}"
     command: nginx -s reload
-  when: nginx_conf.changed and lb_info.exists and lb_info.container.State.Running
+  when: nginx_conf.changed and nginx_info.exists and nginx_info.container.State.Running
