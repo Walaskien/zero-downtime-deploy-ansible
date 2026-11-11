@@ -1,5 +1,7 @@
 # zero-downtime-deploy-ansible
 
+[![ci](https://github.com/Walaskien/zero-downtime-deploy-ansible/actions/workflows/ci.yml/badge.svg)](https://github.com/Walaskien/zero-downtime-deploy-ansible/actions/workflows/ci.yml)
+
 Rolling deploy of a small Python web app with Ansible: three containers behind nginx, all on the local Docker daemon. A request loop runs during the deploy and counts failed requests. A deliberately naive deploy is there for comparison.
 
 ## The problem
@@ -128,13 +130,11 @@ What this shows:
 
 By hand, outside the script: a broken first deploy (`-e '{"broken_on": ["app1"]}' -e health_retries=4`) fails and leaves no containers behind.
 
-On GitHub Actions the workflow went green on its first run: [run 42963651964](https://github.com/Walaskien/zero-downtime-deploy-ansible/actions/runs/42963651964), ubuntu-24.04 runner image 20261101.360.1, Python 3.11, same pinned requirements. Lint, syntax check and `make demo` all passed, 3m27s for the job and 2m54s of that in the scenario. The numbers from that run:
+On GitHub Actions (ubuntu-24.04, Python 3.11, same pinned requirements) lint, syntax check and `make demo` pass; the job takes about 3.5 minutes, most of it the scenario. Numbers from the first run:
 
 - Rolling v1 to v2: 7684 requests, 0 failed, 0 retried by nginx.
 - Naive v2 to v3: 206 of 2320 failed (200 of them 502), 320 retried by nginx.
 - v4 broken everywhere, and broken only on app2: 0 failed requests in both, everything back on v3.
-
-The run also shows a notice that the actions it uses (checkout, setup-python, upload-artifact) target Node.js 20, which GitHub is deprecating. It did not fail anything.
 
 Not verified: the mermaid diagrams were not checked after GitHub rendered them, and nothing was run outside one Mac with Colima and one GitHub-hosted Ubuntu runner.
 
@@ -148,6 +148,7 @@ Not verified: the mermaid diagrams were not checked after GitHub rendered them, 
 - During a roll two versions answer at the same time (the `versions:` line shows it) and capacity is two instances out of three.
 - A release is an image tag and tags are treated as immutable: an existing tag is not rebuilt. Only the image name is compared, other drift in a container is not corrected.
 - Rollback restores the previous image. If the restored instance does not get healthy either, the play stops there and leaves it for a person.
+- Pinned to ansible-core 2.15, which no longer gets fixes (newer releases need Python 3.10 or later on the controller). Not tried on newer ones.
 - The numbers come from one laptop (macOS, Colima) and short runs with a small request loop. They say the mechanism works, not how it behaves under anything heavier.
 
 ## Layout
