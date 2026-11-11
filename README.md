@@ -74,7 +74,7 @@ touch /tmp/zdd.stop            # terminal 2 prints the counts
 
 ## Verified
 
-Everything below was run on a Mac with Colima (Docker 29.5.2), Python 3.9.6, ansible-core 2.15.13 and community.docker 3.13.1. The output is pasted as it came out.
+The local runs below were on a Mac with Colima (Docker 29.5.2), Python 3.9.6, ansible-core 2.15.13 and community.docker 3.13.1. The output is pasted as it came out.
 
 Static checks:
 
@@ -128,7 +128,15 @@ What this shows:
 
 By hand, outside the script: a broken first deploy (`-e '{"broken_on": ["app1"]}' -e health_retries=4`) fails and leaves no containers behind.
 
-Not verified: the workflow has not run on GitHub Actions (nothing is pushed yet, only actionlint has looked at it), nothing was run on Linux or with the Python 3.11 that CI uses, and the mermaid diagrams were not rendered locally.
+On GitHub Actions the workflow went green on its first run: [run 42963651964](https://github.com/Walaskien/zero-downtime-deploy-ansible/actions/runs/42963651964), ubuntu-24.04 runner image 20261101.360.1, Python 3.11, same pinned requirements. Lint, syntax check and `make demo` all passed, 3m27s for the job and 2m54s of that in the scenario. The numbers from that run:
+
+- Rolling v1 to v2: 7684 requests, 0 failed, 0 retried by nginx.
+- Naive v2 to v3: 206 of 2320 failed (200 of them 502), 320 retried by nginx.
+- v4 broken everywhere, and broken only on app2: 0 failed requests in both, everything back on v3.
+
+The run also shows a notice that the actions it uses (checkout, setup-python, upload-artifact) target Node.js 20, which GitHub is deprecating. It did not fail anything.
+
+Not verified: the mermaid diagrams were not checked after GitHub rendered them, and nothing was run outside one Mac with Colima and one GitHub-hosted Ubuntu runner.
 
 ## Limitations
 
